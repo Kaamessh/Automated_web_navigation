@@ -12,6 +12,7 @@ from supabase import create_client, Client
 import os
 import socket
 from dotenv import load_dotenv
+from huggingface_hub import InferenceClient
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env")) # Load from root .env
 
@@ -62,31 +63,31 @@ _indexed_url = None
 
 class HFEmbedder:
     def __init__(self, token: str):
-        self.api_url = "https://router.huggingface.co/hf-inference/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
-        self.headers = {"Authorization": f"Bearer {token}"}
+        self.client = InferenceClient(
+            model="sentence-transformers/all-MiniLM-L6-v2",
+            token=token
+        )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        all_embeddings = []
-        batch_size = 50
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i+batch_size]
-            response = requests.post(self.api_url, headers=self.headers, json={"inputs": batch, "options": {"wait_for_model": True}}, timeout=60)
-            if response.status_code != 200:
-                raise Exception(f"HF API Error: {response.text}")
-            embeddings = response.json()
-            # The API returns a list of embeddings for the batch
-            if isinstance(embeddings, list):
-                all_embeddings.extend(embeddings)
-            else:
-                raise Exception("Unexpected HF API response format")
-        return all_embeddings
+        # InferenceClient.feature_extraction returns a numpy array or list of floats
+        # We handle batching or rely on the client's internal handling
+        try:
+            embeddings = self.client.feature_extraction(texts)
+            # Convert to list of lists if it's a 2D numpy-like array
+            if hasattr(embeddings, "tolist"):
+                return embeddings.tolist()
+            return embeddings
+        except Exception as e:
+            raise Exception(f"HuggingFace Hub Error: {e}")
 
     def embed_query(self, text: str) -> list[float]:
-        response = requests.post(self.api_url, headers=self.headers, json={"inputs": [text], "options": {"wait_for_model": True}}, timeout=60)
-        if response.status_code != 200:
-            raise Exception(f"HF API Error: {response.text}")
-        embeddings = response.json()
-        return embeddings[0]
+        try:
+            embedding = self.client.feature_extraction(text)
+            if hasattr(embedding, "tolist"):
+                return embedding.tolist()
+            return embedding
+        except Exception as e:
+            raise Exception(f"HuggingFace Hub Error: {e}")
 
 
 def get_embeddings():
