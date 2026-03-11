@@ -45,10 +45,12 @@ def get_supabase():
 
 class IndexRequest(BaseModel):
     url: str
+    user_id: str
 
 
 class SearchRequest(BaseModel):
     query: str
+    user_id: str
 
 
 class SearchResponse(BaseModel):
@@ -177,10 +179,11 @@ def index_website(payload: IndexRequest):
     if not texts:
         raise HTTPException(status_code=400, detail="No links found on the target site.")
 
-    # 1. Clear old data from Supabase so we only search the current site
+    # 1. Clear old data for THIS USER from Supabase
     try:
         sb = get_supabase()
-        sb.table("site_links").delete().neq("id", 0).execute()
+        # Only delete links belonging to this user
+        sb.table("site_links").delete().eq("user_id", payload.user_id).execute()
     except HTTPException:
         raise
     except Exception as e:
@@ -200,7 +203,8 @@ def index_website(payload: IndexRequest):
         records.append({
             "url": hrefs[i],
             "label": texts[i],
-            "embedding": vectors[i]
+            "embedding": vectors[i],
+            "user_id": payload.user_id
         })
         
     # 4. Insert into Supabase in batches of 100 to avoid request size limits
@@ -230,7 +234,12 @@ def search(payload: SearchRequest):
         sb = get_supabase()
         response = sb.rpc(
             "match_links", 
-            {"query_embedding": query_vector, "match_threshold": 0.3, "match_count": 1}
+            {
+                "query_embedding": query_vector, 
+                "match_threshold": 0.3, 
+                "match_count": 1,
+                "p_user_id": payload.user_id
+            }
         ).execute()
         results = response.data
     except HTTPException:

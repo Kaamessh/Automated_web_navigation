@@ -89,7 +89,10 @@ export default function App() {
       const res = await fetch('/api/index', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: urlInput.trim() })
+        body: JSON.stringify({ 
+          url: urlInput.trim(),
+          user_id: session.user.id 
+        })
       })
       
       let data = {}
@@ -132,7 +135,10 @@ export default function App() {
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ 
+          query,
+          user_id: session.user.id
+        })
       })
       const data = await res.json()
       if (!res.ok) {
