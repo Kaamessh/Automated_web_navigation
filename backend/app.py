@@ -62,7 +62,7 @@ _indexed_url = None
 
 class HFEmbedder:
     def __init__(self, token: str):
-        self.api_url = "https://router.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
+        self.api_url = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
         self.headers = {"Authorization": f"Bearer {token}"}
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
