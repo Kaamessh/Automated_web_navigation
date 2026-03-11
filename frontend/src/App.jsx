@@ -170,7 +170,11 @@ export default function App() {
         if (error) throw error
       }
     } catch (err) {
-      setAuthError(err.message)
+      if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
+        setAuthError('Connection Failed: Your Supabase project might be PAUSED. Please go to your Supabase Dashboard and click "Resume".')
+      } else {
+        setAuthError(err.message)
+      }
     } finally {
       setLoading(false)
     }
