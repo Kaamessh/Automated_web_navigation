@@ -63,7 +63,9 @@ export default function App() {
 
       if (!res.ok) {
         setPhase('setup')
-        setIndexError(data.detail || `Server Error (${res.status}): Failed to index.`)
+        const details = data.detail || `Server Error (${res.status})`
+        const traceback = data.traceback ? `\n\nTraceback:\n${data.traceback}` : ''
+        setIndexError(`${details}${traceback}`)
         return
       }
       setSiteUrl(data.indexed_url)

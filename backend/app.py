@@ -6,7 +6,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
 import os
@@ -106,6 +106,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": str(exc),
+            "type": str(type(exc).__name__),
+            "traceback": traceback.format_exc() if os.environ.get("VERCEL") else None
+        }
+    )
 
 @app.get("/api/status")
 def status():
