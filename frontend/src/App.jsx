@@ -1,8 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
+
+// Initialize Supabase client
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const proxyUrl = (url) => `/api/proxy?url=${encodeURIComponent(url)}`
 
 export default function App() {
+  // ── Auth State ──
+  const [session, setSession] = useState(null)
+  const [authView, setAuthView] = useState('login') // 'login' | 'signup'
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [loading, setLoading] = useState(false)
+
   // ── Phase: 'setup' | 'indexing' | 'ready' ──
   const [phase, setPhase] = useState('setup')
   const [urlInput, setUrlInput] = useState('')
@@ -19,6 +35,18 @@ export default function App() {
   const [searching, setSearching] = useState(false)
   const inputRef = useRef(null)
   const urlInputRef = useRef(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 80)
@@ -108,15 +136,112 @@ export default function App() {
     }
   }
 
-  const resetToSetup = () => {
-    setPhase('setup')
-    setResult(null)
-    setQuery('')
-    setError('')
-    setOpen(false)
-    setUrlInput('')
-    setIframeSrc('')
-    setTimeout(() => urlInputRef.current?.focus(), 80)
+  const handleAuth = async (e) => {
+    e.preventDefault()
+    setAuthError('')
+    setLoading(true)
+    try {
+      if (authView === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+        })
+        if (error) throw error
+        
+        // After signup, save name and phone to profiles
+        if (data.user) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert({ 
+              id: data.user.id,
+              full_name: fullName,
+              phone_number: phone,
+              updated_at: new Date().toISOString()
+            })
+          if (profileError) console.error("Profile error:", profileError)
+        }
+        alert("Account created! You can now log in.")
+        setAuthView('login')
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+        if (error) throw error
+      }
+    } catch (err) {
+      setAuthError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    resetToSetup()
+  }
+
+  // ══════════════════════════════════════════════
+  // AUTH PAGE
+  // ══════════════════════════════════════════════
+  if (!session) {
+    return (
+      <div className="setup-page">
+        <div className="setup-card">
+          <div className="setup-icon">👤</div>
+          <h1 className="setup-title">{authView === 'login' ? 'Login' : 'Create Account'}</h1>
+          <form onSubmit={handleAuth} className="setup-form">
+            <input
+              type="email"
+              placeholder="Email ID"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="setup-input"
+              required
+            />
+            {authView === 'signup' && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Full Name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="setup-input"
+                  required
+                />
+                <input
+                  type="tel"
+                  placeholder="Phone Number"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="setup-input"
+                  required
+                />
+              </>
+            )}
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="setup-input"
+              required
+            />
+            <button type="submit" disabled={loading} className="setup-btn">
+              {loading ? 'Processing...' : (authView === 'login' ? 'Sign In' : 'Register')}
+            </button>
+          </form>
+          {authError && <p className="setup-error">{authError}</p>}
+          <button 
+            className="btn-change" 
+            style={{ marginTop: '1rem', background: 'transparent', border: 'none', color: '#8b8efc' }}
+            onClick={() => setAuthView(authView === 'login' ? 'signup' : 'login')}
+          >
+            {authView === 'login' ? "Don't have an account? Sign up" : "Already have an account? Login"}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // ══════════════════════════════════════════════
@@ -217,6 +342,9 @@ export default function App() {
                 </div>
               )}
 
+              <button onClick={handleSignOut} className="btn-change">
+                🚪 Sign Out
+              </button>
               <button onClick={resetToSetup} className="btn-change">
                 ↩ Change Website
               </button>
