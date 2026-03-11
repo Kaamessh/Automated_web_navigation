@@ -48,6 +48,18 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Catch URL errors (like expired links) on mount
+  useEffect(() => {
+    const hash = window.location.hash
+    if (hash && hash.includes('error=')) {
+      const params = new URLSearchParams(hash.replace('#', '?'))
+      const errorDesc = params.get('error_description')
+      if (errorDesc) {
+        setAuthError(`Auth Error: ${errorDesc.replace(/\+/g, ' ')} (The link may have expired)`)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 80)
   }, [open])
@@ -243,6 +255,15 @@ export default function App() {
           >
             {authView === 'login' ? "Don't have an account? Sign up" : "Already have an account? Login"}
           </button>
+          {authError && (
+            <button 
+              className="setup-btn" 
+              style={{ marginTop: '1rem', background: '#3a3d4e' }}
+              onClick={() => { window.location.hash = ''; window.location.reload() }}
+            >
+              🔄 Try Again / Back to Login
+            </button>
+          )}
         </div>
       </div>
     )
