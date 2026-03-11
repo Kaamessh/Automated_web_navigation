@@ -5,3 +5,4 @@ uvicorn
 supabase
 python-dotenv
 huggingface_hub
+numpy
