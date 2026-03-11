@@ -13,8 +13,7 @@ import os
 import socket
 from dotenv import load_dotenv
 
-# Load environment variables from .env file for local development
-load_dotenv()
+load_dotenv() # Load local .env if it exists
 
 def is_safe_url(url: str) -> bool:
     """Check if the URL is safe to fetch (prevents SSRF)."""
