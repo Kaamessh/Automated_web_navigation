@@ -70,9 +70,9 @@ export default function App() {
       setLinksCount(data.links_count)
       setIframeSrc(proxyUrl(data.indexed_url))
       setPhase('ready')
-    } catch {
+    } catch (err) {
       setPhase('setup')
-      setIndexError('Could not connect to backend. Is the server running?')
+      setIndexError(err.message || 'Could not connect to backend. Is the server running?')
     }
   }
 
