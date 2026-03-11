@@ -1,37 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Initialize Supabase client safely
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null
+// Initialize Supabase client safely with hardcoded fallbacks for immediate deployment
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://ahgeogqptinlymmcuvyg.supabase.co"
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFoZ2VvZ3FwdGlubHltbWN1dnlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyMjUzODIsImV4cCI6MjA4ODgwMTM4Mn0.XddD4uxcg9x8L7KBh4kMgHnM5mq2bHw3xk8mZ4l5nvc"
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const proxyUrl = (url) => `/api/proxy?url=${encodeURIComponent(url)}`
 
 export default function App() {
-  // If Supabase is not configured, show a helpful error instead of crashing
-  if (!supabase) {
-    return (
-      <div className="setup-page">
-        <div className="setup-card" style={{ textAlign: 'center' }}>
-          <div className="setup-icon">⚠️</div>
-          <h1 className="setup-title">Configuration Missing</h1>
-          <p className="setup-sub">
-            The frontend is missing the Supabase connection details.
-          </p>
-          <div style={{ textAlign: 'left', background: '#2a2d3e', padding: '1rem', borderRadius: '8px', marginTop: '1rem', fontSize: '14px' }}>
-            <p>Please add these <strong>Environment Variables</strong> in Vercel Settings:</p>
-            <ul style={{ color: '#8b8efc', listStyle: 'none', padding: 0 }}>
-              <li>• VITE_SUPABASE_URL</li>
-              <li>• VITE_SUPABASE_ANON_KEY</li>
-            </ul>
-            <p style={{ marginTop: '0.5rem' }}>Then <strong>Redeploy</strong> your project.</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   // ── Auth State ──
   const [session, setSession] = useState(null)
   const [authView, setAuthView] = useState('login') // 'login' | 'signup'
