@@ -33,10 +33,14 @@ def is_safe_url(url: str) -> bool:
     except:
         return False
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
+
+def get_supabase():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(status_code=500, detail="Supabase configuration missing. Please add SUPABASE_URL and SUPABASE_KEY to your Vercel Environment Variables.")
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 class IndexRequest(BaseModel):
     url: str
@@ -105,10 +109,21 @@ app.add_middleware(
 
 @app.get("/api/status")
 def status():
-    # Since we use Supabase now, we could check if DB has records. 
-    # For now, just return True if an indexed_url is tracked locally or assume ready.
+    config_missing = []
+    if not SUPABASE_URL: config_missing.append("SUPABASE_URL")
+    if not SUPABASE_KEY: config_missing.append("SUPABASE_KEY")
+    if not HF_TOKEN: config_missing.append("HF_TOKEN")
+    
+    if config_missing:
+        return {
+            "ready": False, 
+            "error": "Configuration Missing", 
+            "missing_vars": config_missing,
+            "message": f"Please add the following variables to Vercel: {', '.join(config_missing)}"
+        }
+
     if _indexed_url is None:
-        return {"ready": False, "message": "No website indexed recently in this session.", "indexed_url": None}
+        return {"ready": False, "message": "No website indexed recently.", "indexed_url": None}
     return {"ready": True, "message": "Website indexed and ready.", "indexed_url": _indexed_url}
 
 
@@ -151,12 +166,18 @@ def index_website(payload: IndexRequest):
 
     # 1. Clear old data from Supabase so we only search the current site
     try:
-        supabase.table("site_links").delete().neq("id", 0).execute()
+        sb = get_supabase()
+        sb.table("site_links").delete().neq("id", 0).execute()
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Warning: Could not clear old links. Make sure your trigger or policies allow deletes. Error: {e}")
-        pass # Not critical to fail indexing entirely if clearing fails, though might affect search limits
+        print(f"Warning: Could not clear old links. Error: {e}")
+        pass 
 
     # 2. Embed all texts
+    if not HF_TOKEN:
+        raise HTTPException(status_code=500, detail="HF_TOKEN environment variable is missing on Vercel.")
+    
     embedder = get_embeddings()
     vectors = embedder.embed_documents(texts)
     
@@ -193,11 +214,14 @@ def search(payload: SearchRequest):
     query_vector = embedder.embed_query(query)
 
     try:
-        response = supabase.rpc(
+        sb = get_supabase()
+        response = sb.rpc(
             "match_links", 
             {"query_embedding": query_vector, "match_threshold": 0.3, "match_count": 1}
         ).execute()
         results = response.data
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database search failed: {exc}") from exc
 
