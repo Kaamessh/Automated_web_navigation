@@ -195,7 +195,7 @@ def index_website(payload: IndexRequest):
     try:
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
-            supabase.table("site_links").insert(batch).execute()
+            sb.table("site_links").insert(batch).execute()
     except Exception as e:
          raise HTTPException(status_code=500, detail=f"Database error during insert: {e}")
 

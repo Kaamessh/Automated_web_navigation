@@ -51,10 +51,19 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: urlInput.trim() })
       })
-      const data = await res.json()
+      
+      let data = {}
+      const contentType = res.headers.get("content-type")
+      if (contentType && contentType.includes("application/json")) {
+        data = await res.json()
+      } else {
+        const text = await res.text()
+        throw new Error(text || 'Server returned an error without JSON details.')
+      }
+
       if (!res.ok) {
         setPhase('setup')
-        setIndexError(data.detail || 'Failed to index website.')
+        setIndexError(data.detail || `Server Error (${res.status}): Failed to index.`)
         return
       }
       setSiteUrl(data.indexed_url)
