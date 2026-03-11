@@ -303,7 +303,7 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
     # and inject a script to intercept link clicks and forward them to the parent frame.
     if "text/html" in content_type:
         # Inject link-interceptor and network-interceptor
-        html_content = resp.content.decode("utf-8", errors="replace")
+        html_content = content.decode("utf-8", errors="replace")
         
         # Neutralize common frame-busting patterns
         # Replace 'top.location = self.location' and similar with a no-op
@@ -454,4 +454,4 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
         if k.lower() not in _BLOCKED_HEADERS
         and k.lower() not in ("transfer-encoding", "connection")
     }
-    return Response(content=resp.content, media_type=content_type, headers=forward_headers)
+    return Response(content=content, media_type=content_type, headers=forward_headers)
