@@ -192,6 +192,17 @@ export default function App() {
     }
   }
 
+  const resetToSetup = () => {
+    setPhase('setup')
+    setSiteUrl('')
+    setLinksCount(0)
+    setIframeSrc('')
+    setUrlInput('')
+    setResult(null)
+    setError('')
+    setOpen(false)
+  }
+
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     resetToSetup()
