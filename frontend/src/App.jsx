@@ -22,6 +22,8 @@ export default function App() {
   // ── Phase: 'setup' | 'indexing' | 'ready' ──
   const [phase, setPhase] = useState('setup')
   const [urlInput, setUrlInput] = useState('')
+  const [suggestions, setSuggestions] = useState([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [indexError, setIndexError] = useState('')
   const [siteUrl, setSiteUrl] = useState('')
   const [linksCount, setLinksCount] = useState(0)
@@ -63,6 +65,43 @@ export default function App() {
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 80)
   }, [open])
+
+  // Fetch URL suggestions using Clearbit Autocomplete API
+  useEffect(() => {
+    const fetchSuggestions = async () => {
+      if (!urlInput.trim() || phase === 'indexing') {
+        setSuggestions([])
+        setShowSuggestions(false)
+        return
+      }
+      try {
+        const res = await fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(urlInput)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setSuggestions(data)
+          setShowSuggestions(data.length > 0)
+        }
+      } catch (err) {
+        // Ignore fetch errors to prevent UI disruption
+        console.error("Autocomplete fetch failed:", err)
+      }
+    }
+
+    const timeoutId = setTimeout(fetchSuggestions, 300) // Debounce input
+    return () => clearTimeout(timeoutId)
+  }, [urlInput, phase])
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (urlInputRef.current && !urlInputRef.current.contains(e.target)) {
+        // Delay closing slightly so clicking a suggestion works
+        setTimeout(() => setShowSuggestions(false), 150)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Listen for link-click messages from the proxied iframe
   useEffect(() => {
@@ -204,6 +243,8 @@ export default function App() {
     setLinksCount(0)
     setIframeSrc('')
     setUrlInput('')
+    setSuggestions([])
+    setShowSuggestions(false)
     setResult(null)
     setError('')
     setOpen(false)
@@ -300,18 +341,77 @@ export default function App() {
             and answer navigation questions.
           </p>
 
-          <form onSubmit={handleIndex} className="setup-form">
-            <input
-              ref={urlInputRef}
-              type="text"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="https://yourcollege.edu.in"
-              disabled={phase === 'indexing'}
-              className="setup-input"
-              autoFocus
-            />
-            <button type="submit" disabled={phase === 'indexing'} className="setup-btn">
+          <form onSubmit={handleIndex} className="setup-form" style={{ position: 'relative' }}>
+            <div ref={urlInputRef} style={{ width: '100%', position: 'relative' }}>
+              <input
+                type="text"
+                value={urlInput}
+                onChange={(e) => {
+                  setUrlInput(e.target.value)
+                  setShowSuggestions(true)
+                }}
+                onFocus={() => {if (suggestions.length > 0) setShowSuggestions(true)}}
+                placeholder="Search college or type URL (e.g. srm)"
+                disabled={phase === 'indexing'}
+                className="setup-input"
+                autoFocus
+                style={{ width: '100%' }}
+              />
+              
+              {/* Auto-suggest Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="suggestions-dropdown" style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  background: 'rgba(30, 32, 43, 0.95)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '12px',
+                  marginTop: '8px',
+                  maxHeight: '200px',
+                  overflowY: 'auto',
+                  zIndex: 1000,
+                  backdropFilter: 'blur(10px)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                  textAlign: 'left'
+                }}>
+                  {suggestions.map((item, index) => (
+                    <div 
+                      key={index}
+                      className="suggestion-item"
+                      style={{
+                        padding: '12px 16px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        borderBottom: index < suggestions.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
+                        transition: 'background 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      onClick={() => {
+                        setUrlInput(`https://${item.domain}`)
+                        setShowSuggestions(false)
+                      }}
+                    >
+                      {item.logo ? (
+                        <img src={item.logo} alt={item.name} style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#fff' }} />
+                      ) : (
+                        <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>🌐</div>
+                      )}
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '500', color: '#fff' }}>{item.name}</div>
+                        <div style={{ fontSize: '12px', color: '#979bb5' }}>{item.domain}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <button type="submit" disabled={phase === 'indexing'} className="setup-btn" style={{ marginTop: '16px' }}>
               {phase === 'indexing'
                 ? <><span className="spinner" /> Indexing…</>
                 : 'Index & Launch →'}
