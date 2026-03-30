@@ -6,6 +6,11 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://qpozbbgivdsovi
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwb3piYmdpdmRzb3Zpc2d5ZWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mzk0MDEsImV4cCI6MjA5MDQxNTQwMX0.mntbTFCs-nwOE5MqDuhTGydN7gTMucGNcDzTi43DPYg"
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+// Secondary Supabase Project (Failover)
+const supabaseUrl2 = import.meta.env.VITE_SUPABASE_URL_2 || "https://hghybhyiifgryhaswjjq.supabase.co"
+const supabaseAnonKey2 = import.meta.env.VITE_SUPABASE_ANON_KEY_2 || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhnaHliaHlpaWZncnloYXN3ampxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mzc5ODksImV4cCI6MjA5MDQxMzk4OX0.OWPxTHCbZAUNbWqsKusfmrf4c3Mzj09abMcQ1igXza8"
+const supabase2 = createClient(supabaseUrl2, supabaseAnonKey2)
+
 const proxyUrl = (url) => `/api/proxy?url=${encodeURIComponent(url)}`
 
 export default function App() {

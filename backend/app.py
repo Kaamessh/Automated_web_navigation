@@ -36,17 +36,29 @@ def is_safe_url(url: str) -> bool:
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+SUPABASE_URL_2 = os.environ.get("SUPABASE_URL_2", "").strip()
+SUPABASE_KEY_2 = os.environ.get("SUPABASE_KEY_2", "").strip()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 
-_sb_client = None
+_sb_clients = {}
 
-def get_supabase() -> Client:
-    global _sb_client
-    if _sb_client is None:
+def get_supabase_clients() -> dict:
+    global _sb_clients
+    if not _sb_clients:
         if not SUPABASE_URL or not SUPABASE_KEY:
             raise HTTPException(status_code=500, detail="Supabase configuration missing.")
-        _sb_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    return _sb_client
+        
+        # Initialize Primary
+        _sb_clients["primary"] = create_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        # Initialize Secondary (Optional)
+        if SUPABASE_URL_2 and SUPABASE_KEY_2:
+            try:
+                _sb_clients["secondary"] = create_client(SUPABASE_URL_2, SUPABASE_KEY_2)
+            except Exception as e:
+                print(f"Warning: Could not initialize secondary Supabase: {e}")
+                
+    return _sb_clients
 
 class IndexRequest(BaseModel):
     url: str
@@ -191,16 +203,15 @@ def index_website(payload: IndexRequest):
     if not texts:
         raise HTTPException(status_code=400, detail="No links found on the target site.")
 
-    # 1. Clear old data for THIS USER from Supabase
-    try:
-        sb = get_supabase()
-        # Only delete links belonging to this user
-        sb.table("site_links").delete().eq("user_id", payload.user_id).execute()
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Warning: Could not clear old links. Error: {e}")
-        pass 
+    # 1. Clear old data for THIS USER from all Supabase projects
+    clients = get_supabase_clients()
+    for name, sb in clients.items():
+        try:
+            # Only delete links belonging to this user
+            sb.table("site_links").delete().eq("user_id", payload.user_id).execute()
+        except Exception as e:
+            print(f"Warning: Could not clear old links for {name}. Error: {e}")
+            pass 
 
     # 2. Embed all texts
     if not HF_TOKEN:
@@ -219,19 +230,23 @@ def index_website(payload: IndexRequest):
             "user_id": payload.user_id
         })
         
-    # 4. Insert into Supabase in batches of 100 to avoid request size limits
+    # 4. Insert into all available Supabase projects in batches
     batch_size = 100
-    try:
-        sb = get_supabase()
-        for i in range(0, len(records), batch_size):
-            batch = records[i:i + batch_size]
-            # Use small delay to prevent resource contention
-            time.sleep(1) # 1 second delay between each batch to prevent resource busy error
-            sb.table("site_links").insert(batch).execute()
-    except Exception as e:
-         import traceback
-         print(f"INSERT ERROR: {e}\n{traceback.format_exc()}")
-         raise HTTPException(status_code=500, detail=f"Database error during insert ({type(e).__name__}): {e}")
+    success_count = 0
+    
+    for name, sb in clients.items():
+        try:
+            for i in range(0, len(records), batch_size):
+                batch = records[i:i + batch_size]
+                time.sleep(1) # 1 second delay between batches for stability
+                sb.table("site_links").insert(batch).execute()
+            success_count += 1
+            print(f"Success: Indexed to {name}")
+        except Exception as e:
+            print(f"Error: Failed to index to {name}: {e}")
+            
+    if success_count == 0:
+         raise HTTPException(status_code=500, detail="Database error: Failed to index website to any available database.")
 
     _indexed_url = base_url
 
@@ -247,22 +262,37 @@ def search(payload: SearchRequest):
     embedder = get_embeddings()
     query_vector = embedder.embed_query(query)
 
-    try:
-        sb = get_supabase()
-        response = sb.rpc(
-            "match_links", 
-            {
-                "query_embedding": query_vector, 
-                "match_threshold": 0.3, 
-                "match_count": 1,
-                "p_user_id": payload.user_id
-            }
-        ).execute()
-        results = response.data
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Database search failed: {exc}") from exc
+    clients = get_supabase_clients()
+    results = None
+    last_error = None
+    
+    # Try Primary, Failover to others
+    order = ["primary", "secondary"] if "secondary" in clients else ["primary"]
+    
+    for name in order:
+        if name not in clients: continue
+        try:
+            sb = clients[name]
+            response = sb.rpc(
+                "match_links", 
+                {
+                    "query_embedding": query_vector, 
+                    "match_threshold": 0.3, 
+                    "match_count": 1,
+                    "p_user_id": payload.user_id
+                }
+            ).execute()
+            results = response.data
+            if results is not None:
+                print(f"Search Success via {name}")
+                break
+        except Exception as exc:
+            print(f"Search Failed via {name}: {exc}")
+            last_error = exc
+            continue
+
+    if results is None:
+        raise HTTPException(status_code=500, detail=f"Database search failed across all servers: {last_error}")
 
     if not results or len(results) == 0:
         raise HTTPException(status_code=404, detail="No matching link found.")
