@@ -240,6 +240,7 @@ def index_website(payload: IndexRequest):
         
     # 4. Insert into all available Supabase projects using Direct REST (Ultra-Light)
     # This bypasses the heavy supabase-py library to fix [Errno 16] "Busy" errors.
+    batch_size = 100
     success_count = 0
     errors = []
     
