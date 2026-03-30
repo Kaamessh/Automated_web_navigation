@@ -1,5 +1,4 @@
 import urllib.parse
-
 import requests
 from bs4 import BeautifulSoup
 import urllib3
@@ -9,8 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel
 from supabase import create_client, Client
-import os
 import socket
+import time
+import os
 from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
@@ -184,6 +184,10 @@ def index_website(payload: IndexRequest):
             texts.append(text)
             hrefs.append(full_url)
 
+    # SECURE LIMIT: Take only top 200 links to prevent "Device or resource busy"
+    texts = texts[:200]
+    hrefs = hrefs[:200]
+
     if not texts:
         raise HTTPException(status_code=400, detail="No links found on the target site.")
 
@@ -221,7 +225,8 @@ def index_website(payload: IndexRequest):
         sb = get_supabase()
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
-            # Use small delay to prevent resource contention if hitting very many batches
+            # Use small delay to prevent resource contention
+            time.sleep(1) # 1 second delay between each batch to prevent resource busy error
             sb.table("site_links").insert(batch).execute()
     except Exception as e:
          import traceback
