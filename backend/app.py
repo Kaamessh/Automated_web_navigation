@@ -238,26 +238,43 @@ def index_website(payload: IndexRequest):
             "user_id": payload.user_id
         })
         
-    # 4. Insert into all available Supabase projects in batches
-    batch_size = 100
+    # 4. Insert into all available Supabase projects using Direct REST (Ultra-Light)
+    # This bypasses the heavy supabase-py library to fix [Errno 16] "Busy" errors.
     success_count = 0
     errors = []
     
     for name, sb in clients.items():
         try:
+            url = SUPABASE_URL if name == "primary" else SUPABASE_URL_2
+            key = SUPABASE_KEY if name == "primary" else SUPABASE_KEY_2
+            
+            # Direct REST endpoint for Supabase
+            rest_url = f"{url}/rest/v1/site_links"
+            rest_headers = {
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal"
+            }
+            
             for i in range(0, len(records), batch_size):
                 batch = records[i:i + batch_size]
-                time.sleep(1) # 1 second delay between batches for stability
-                sb.table("site_links").insert(batch).execute()
+                time.sleep(0.5) # Small breath
+                resp = requests.post(rest_url, headers=rest_headers, json=batch, timeout=30)
+                resp.raise_for_status()
+                
             success_count += 1
-            print(f"Success: Indexed to {name}")
+            print(f"Success: Indexed to {name} via Direct REST")
         except Exception as e:
-            err_msg = f"{name}: {str(e)}"
-            print(f"Error: Failed to index to {err_msg}")
+            err_details = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                err_details += f" | Response: {e.response.text}"
+            err_msg = f"{name}: {err_details}"
+            print(f"Error: {err_msg}")
             errors.append(err_msg)
             
     if success_count == 0:
-         detail_msg = "Database error: Failed to index website to any available database. Errors: " + " | ".join(errors)
+         detail_msg = "Database error: All database attempts failed. Details: " + " | ".join(errors)
          raise HTTPException(status_code=500, detail=detail_msg)
 
     _indexed_url = base_url
