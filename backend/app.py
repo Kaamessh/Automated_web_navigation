@@ -38,10 +38,15 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()
 
-def get_supabase():
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise HTTPException(status_code=500, detail="Supabase configuration missing. Please add SUPABASE_URL and SUPABASE_KEY to your Vercel Environment Variables.")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+_sb_client = None
+
+def get_supabase() -> Client:
+    global _sb_client
+    if _sb_client is None:
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            raise HTTPException(status_code=500, detail="Supabase configuration missing.")
+        _sb_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return _sb_client
 
 class IndexRequest(BaseModel):
     url: str
@@ -113,12 +118,15 @@ app.add_middleware(
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback
+    err_msg = str(exc)
+    trace = traceback.format_exc()
+    print(f"ERROR: {err_msg}\n{trace}") # Crucial for server logs
     return JSONResponse(
         status_code=500,
         content={
-            "detail": str(exc),
+            "detail": err_msg,
             "type": str(type(exc).__name__),
-            "traceback": traceback.format_exc() if os.environ.get("VERCEL") else None
+            "traceback": trace
         }
     )
 
@@ -210,11 +218,15 @@ def index_website(payload: IndexRequest):
     # 4. Insert into Supabase in batches of 100 to avoid request size limits
     batch_size = 100
     try:
+        sb = get_supabase()
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
+            # Use small delay to prevent resource contention if hitting very many batches
             sb.table("site_links").insert(batch).execute()
     except Exception as e:
-         raise HTTPException(status_code=500, detail=f"Database error during insert: {e}")
+         import traceback
+         print(f"INSERT ERROR: {e}\n{traceback.format_exc()}")
+         raise HTTPException(status_code=500, detail=f"Database error during insert ({type(e).__name__}): {e}")
 
     _indexed_url = base_url
 
