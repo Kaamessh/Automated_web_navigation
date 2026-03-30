@@ -233,6 +233,7 @@ def index_website(payload: IndexRequest):
     # 4. Insert into all available Supabase projects in batches
     batch_size = 100
     success_count = 0
+    errors = []
     
     for name, sb in clients.items():
         try:
@@ -243,10 +244,13 @@ def index_website(payload: IndexRequest):
             success_count += 1
             print(f"Success: Indexed to {name}")
         except Exception as e:
-            print(f"Error: Failed to index to {name}: {e}")
+            err_msg = f"{name}: {str(e)}"
+            print(f"Error: Failed to index to {err_msg}")
+            errors.append(err_msg)
             
     if success_count == 0:
-         raise HTTPException(status_code=500, detail="Database error: Failed to index website to any available database.")
+         detail_msg = "Database error: Failed to index website to any available database. Errors: " + " | ".join(errors)
+         raise HTTPException(status_code=500, detail=detail_msg)
 
     _indexed_url = base_url
 
