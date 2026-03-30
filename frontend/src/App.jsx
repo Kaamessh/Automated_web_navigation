@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 // Initialize Supabase client safely with hardcoded fallbacks for immediate deployment
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://ahgeogqptinlymmcuvyg.supabase.co"
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFoZ2VvZ3FwdGlubHltbWN1dnlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyMjUzODIsImV4cCI6MjA4ODgwMTM4Mn0.XddD4uxcg9x8L7KBh4kMgHnM5mq2bHw3xk8mZ4l5nvc"
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://qpozbbgivdsovisgyeel.supabase.co"
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwb3piYmdpdmRzb3Zpc2d5ZWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mzk0MDEsImV4cCI6MjA5MDQxNTQwMX0.mntbTFCs-nwOE5MqDuhTGydN7gTMucGNcDzTi43DPYg"
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const proxyUrl = (url) => `/api/proxy?url=${encodeURIComponent(url)}`
