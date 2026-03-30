@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 import socket
 import time
 import os
@@ -48,15 +48,23 @@ def get_supabase_clients() -> dict:
         if not SUPABASE_URL or not SUPABASE_KEY:
             raise HTTPException(status_code=500, detail="Supabase configuration missing.")
         
+        # Common options to prevent [Errno 16] Busy errors (Forcing stable HTTP/1.1)
+        options = ClientOptions(
+            postgrest_client_timeout=30,
+            storage_client_timeout=30
+        )
+        
         # Initialize Primary
-        _sb_clients["primary"] = create_client(SUPABASE_URL, SUPABASE_KEY)
+        _sb_clients["primary"] = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
         
         # Initialize Secondary (Optional)
         if SUPABASE_URL_2 and SUPABASE_KEY_2:
             try:
-                _sb_clients["secondary"] = create_client(SUPABASE_URL_2, SUPABASE_KEY_2)
+                _sb_clients["secondary"] = create_client(SUPABASE_URL_2, SUPABASE_KEY_2, options=options)
             except Exception as e:
                 print(f"Warning: Could not initialize secondary Supabase: {e}")
+        else:
+            print("Notice: Secondary Supabase URL/Key missing. Failover is disabled.")
                 
     return _sb_clients
 
