@@ -135,6 +135,52 @@ app.add_middleware(
 )
 
 
+@app.get("/api/suggestions")
+def get_suggestions(query: str = Query(..., min_length=2)):
+    """
+    Server-side suggestion engine that handles typos (DuckDuckGo) 
+    and fetches company metadata (Clearbit).
+    """
+    if not query:
+        return []
+
+    try:
+        # 1. Fetch fuzzy suggestions from DuckDuckGo (handles "sathiyabama" -> "sathyabama")
+        ddg_url = f"https://duckduckgo.com/ac/?q={urllib.parse.quote(query)}"
+        ddg_resp = requests.get(ddg_url, timeout=5)
+        ddg_data = ddg_resp.json() if ddg_resp.ok else []
+        
+        # Extract best phrases
+        best_guesses = [item.get("phrase") for item in ddg_data[:3] if "phrase" in item]
+        search_terms = list(set([query] + best_guesses))
+        
+        # 2. Fetch metadata from Clearbit for all search terms in parallel-ish/sequence
+        # (Since this is server-side, it's very fast)
+        all_results = []
+        for term in search_terms:
+            try:
+                cb_url = f"https://autocomplete.clearbit.com/v1/companies/suggest?query={urllib.parse.quote(term)}"
+                cb_resp = requests.get(cb_url, timeout=5)
+                if cb_resp.ok:
+                    all_results.extend(cb_resp.json())
+            except:
+                continue
+                
+        # 3. Deduplicate by domain
+        unique_suggestions = []
+        seen_domains = set()
+        for item in all_results:
+            domain = item.get("domain")
+            if domain and domain not in seen_domains:
+                unique_suggestions.append(item)
+                seen_domains.add(domain)
+                
+        return unique_suggestions[:8] # Return top 8 results
+    except Exception as e:
+        print(f"Suggestion Error: {e}")
+        return []
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     import traceback

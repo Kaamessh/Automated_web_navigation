@@ -71,7 +71,7 @@ export default function App() {
     if (open) setTimeout(() => inputRef.current?.focus(), 80)
   }, [open])
 
-  // Fetch URL suggestions using a combination of DuckDuckGo (Typo-Tolerant) and Clearbit (Domain-Rich)
+  // Fetch URL suggestions from our Backend Suggestion Engine (Fuzzy + Logo)
   useEffect(() => {
     const fetchSuggestions = async () => {
       const query = urlInput.trim()
@@ -82,47 +82,16 @@ export default function App() {
       }
 
       try {
-        // 1. Fetch fuzzy suggestions from DDG (typo correction)
-        // Wrapped in a safe block to prevent CORS issues from breaking the whole UI
-        let ddgData = []
-        try {
-          const ddgRes = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}`)
-          if (ddgRes.ok) {
-            ddgData = await ddgRes.json()
-          }
-        } catch (e) {
-          console.warn("Fuzzy lookup blocked or failed:", e)
+        // We now use our OWN backend for suggestions.
+        // It handles typos and logos server-side to avoid CORS issues.
+        const res = await fetch(`/api/suggestions?query=${encodeURIComponent(query)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setSuggestions(data)
+          setShowSuggestions(data.length > 0)
         }
-
-        // 2. Extract best guesses
-        const bestGuesses = Array.isArray(ddgData) ? ddgData.slice(0, 3).map(item => item.phrase) : []
-        
-        // 3. Fetch domain data (Direct query + Fuzzy guesses)
-        const searchTerms = [...new Set([query, ...bestGuesses])]
-        const fetchPromises = searchTerms.map(term => 
-          fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(term)}`)
-            .then(res => res.ok ? res.json() : [])
-            .catch(() => [])
-        )
-
-        const resultsArr = await Promise.all(fetchPromises)
-        
-        // 4. Merge results and deduplicate
-        const merged = resultsArr.flat()
-        const uniqueSuggestions = []
-        const seenDomains = new Set()
-        
-        for (const item of merged) {
-          if (item && item.domain && !seenDomains.has(item.domain)) {
-            uniqueSuggestions.push(item)
-            seenDomains.add(item.domain)
-          }
-        }
-
-        setSuggestions(uniqueSuggestions.slice(0, 7))
-        setShowSuggestions(uniqueSuggestions.length > 0)
       } catch (err) {
-        console.error("Critical Autocomplete failure:", err)
+        console.error("Backend suggestions failed:", err)
         setSuggestions([])
         setShowSuggestions(false)
       }
