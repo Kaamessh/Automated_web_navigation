@@ -462,24 +462,36 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
     if "text/html" in content_type:
         html_content = content.decode("utf-8", errors="replace")
         
-        # 1. FIX MIXED CONTENT: Force http -> https for the target domain and its assets
+        # 1. FIX MIXED CONTENT: Aggressive http -> https rewriting for assets
         parsed_url = urllib.parse.urlparse(url)
         domain = parsed_url.netloc
+        domain_regex = domain.replace("www.", "") # Make www optional
         import re
-        html_content = re.sub(r'http://' + re.escape(domain), r'https://' + domain, html_content, flags=re.I)
-        # General http to https for common asset CDNs/libraries
-        html_content = re.sub(r'http://(www\.)?google-analytics\.com', r'https://\1google-analytics.com', html_content, flags=re.I)
-        html_content = re.sub(r'http://(www\.)?googletagmanager\.com', r'https://\1googletagmanager.com', html_content, flags=re.I)
+        # Target the domain specifically
+        html_content = re.sub(r'http://(www\.)?' + re.escape(domain_regex), r'https://\1' + domain_regex, html_content, flags=re.I)
+        # Nuke all mixed content by forcing all http src/href attributes to https
+        # This completely fixes the "blocked insecure stylesheet/script" errors
+        html_content = re.sub(r'(src|href)=[\'"]http://([^\'"]+)[\'"]', r'\1="https://\2"', html_content, flags=re.I)
 
         soup = BeautifulSoup(html_content, "html.parser")
         
+        # 1.5 JQUERY FALLBACK INJECTION
+        # Some sites (like Sathyabama) fail to load their jQuery due to CORS/Mixed Content,
+        # which causes Bootstrap to crash and breaks the whole layout.
+        # We inject a reliable jQuery CDN link at the very top.
+        jquery_script = soup.new_tag("script", src="https://code.jquery.com/jquery-3.6.0.min.js", crossorigin="anonymous")
+        if soup.head:
+            soup.head.insert(0, jquery_script)
+        elif soup.html:
+            soup.html.insert(0, jquery_script)
+
         # 2. BASE TAG INJECTION: Fix relative paths for images/css/js
         if not soup.find("base"):
             base_tag = soup.new_tag("base", href=url)
             if soup.head:
-                soup.head.insert(0, base_tag)
+                soup.head.insert(1, base_tag) # Insert after jQuery
             elif soup.html:
-                soup.html.insert(0, base_tag)
+                soup.html.insert(1, base_tag)
 
         # 3. SPOOF SCRIPT (Frame-Busting Shield)
         spoof_script = soup.new_tag("script")
