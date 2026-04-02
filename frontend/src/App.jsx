@@ -71,23 +71,53 @@ export default function App() {
     if (open) setTimeout(() => inputRef.current?.focus(), 80)
   }, [open])
 
-  // Fetch URL suggestions using Clearbit Autocomplete API
+  // Fetch URL suggestions using a combination of DuckDuckGo (Typo-Tolerant) and Clearbit (Domain-Rich)
   useEffect(() => {
     const fetchSuggestions = async () => {
-      if (!urlInput.trim() || phase === 'indexing') {
+      const query = urlInput.trim()
+      if (!query || phase === 'indexing' || query.length < 2) {
         setSuggestions([])
         setShowSuggestions(false)
         return
       }
+
       try {
-        const res = await fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(urlInput)}`)
-        if (res.ok) {
-          const data = await res.json()
-          setSuggestions(data)
-          setShowSuggestions(data.length > 0)
+        // 1. Fetch typo-corrected suggestions from DuckDuckGo (handles "goooogle" -> "google")
+        const ddgRes = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}`)
+        let ddgData = []
+        if (ddgRes.ok) {
+          ddgData = await ddgRes.ok ? await ddgRes.json() : []
         }
+
+        // 2. Extract unique "best guesses" from DuckDuckGo phrases
+        const bestGuesses = ddgData.slice(0, 3).map(item => item.phrase)
+        
+        // 3. Fetch domain data for the user's query AND the best guesses
+        // We run these in parallel for maximum speed
+        const searchTerms = [...new Set([query, ...bestGuesses])]
+        const fetchPromises = searchTerms.map(term => 
+          fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(term)}`)
+            .then(res => res.ok ? res.json() : [])
+            .catch(() => [])
+        )
+
+        const results = await Promise.all(fetchPromises)
+        
+        // 4. Merge results and deduplicate by domain name
+        const merged = results.flat()
+        const uniqueSuggestions = []
+        const seenDomains = new Set()
+        
+        for (const item of merged) {
+          if (!seenDomains.has(item.domain)) {
+            uniqueSuggestions.push(item)
+            seenDomains.add(item.domain)
+          }
+        }
+
+        setSuggestions(uniqueSuggestions.slice(0, 7)) // Limit to 7 results
+        setShowSuggestions(uniqueSuggestions.length > 0)
       } catch (err) {
-        // Ignore fetch errors to prevent UI disruption
         console.error("Autocomplete fetch failed:", err)
       }
     }
