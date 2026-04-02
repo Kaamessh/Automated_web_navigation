@@ -460,33 +460,32 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
     # For HTML pages: inject <base> tag so relative URLs resolve on the real site,
     # and inject a script to intercept link clicks and forward them to the parent frame.
     if "text/html" in content_type:
-        # Inject link-interceptor and network-interceptor
         html_content = content.decode("utf-8", errors="replace")
         
-        # Neutralize common frame-busting patterns
-        # Replace 'top.location = self.location' and similar with a no-op
+        # 1. FIX MIXED CONTENT: Force http -> https for the target domain and its assets
+        parsed_url = urllib.parse.urlparse(url)
+        domain = parsed_url.netloc
         import re
-        # Even more aggressive neutralization
-        html_content = re.sub(r'(window\.)?(top|parent)\.(location|location\.href|location\.replace|location\.assign)\b\s*=?\s*', r'/* blocked */ \1\2._blocked_loc =', html_content, flags=re.I)
-        html_content = re.sub(r'(window\.)?(top|parent)\[[\'"]location[\'"]\]\s*=', r'/* blocked */ \1\2["_blocked_loc"] =', html_content, flags=re.I)
-        html_content = re.sub(r'if\s*\((window\.)?(top|parent)\s*!==?\s*(window\.)?self\)', r'if(false)', html_content, flags=re.I)
-        html_content = re.sub(r'if\s*\((window\.)?self\s*!==?\s*(window\.)?(top|parent)\)', r'if(false)', html_content, flags=re.I)
+        html_content = re.sub(r'http://' + re.escape(domain), r'https://' + domain, html_content, flags=re.I)
+        # General http to https for common asset CDNs/libraries
+        html_content = re.sub(r'http://(www\.)?google-analytics\.com', r'https://\1google-analytics.com', html_content, flags=re.I)
+        html_content = re.sub(r'http://(www\.)?googletagmanager\.com', r'https://\1googletagmanager.com', html_content, flags=re.I)
 
         soup = BeautifulSoup(html_content, "html.parser")
+        
+        # 2. BASE TAG INJECTION: Fix relative paths for images/css/js
         if not soup.find("base"):
             base_tag = soup.new_tag("base", href=url)
             if soup.head:
                 soup.head.insert(0, base_tag)
             elif soup.html:
-                head = soup.new_tag("head")
-                head.append(base_tag)
-                soup.html.insert(0, head)
-        
-        # Inject ultra-robust anti-frame-buster at the VERY top of head if possible
+                soup.html.insert(0, base_tag)
+
+        # 3. SPOOF SCRIPT (Frame-Busting Shield)
         spoof_script = soup.new_tag("script")
         spoof_script.string = """
 (function() {
-  // Spoof window hierarchy
+  // Spoof window hierarchy to prevent frame-busting
   try {
     Object.defineProperty(window, 'top', { get: function() { return window; }, configurable: false });
     Object.defineProperty(window, 'parent', { get: function() { return window; }, configurable: false });
@@ -494,34 +493,21 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
     window.frameElement = null;
   } catch (e) {}
 
-  // DOM-Lock: Prevent scripts from hiding the body or document
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.type === 'attributes' && (mutation.attributeName === 'style' || mutation.attributeName === 'hidden')) {
-        const target = mutation.target;
-        if (target === document.body || target === document.documentElement) {
-          if (target.style.display === 'none' || target.style.visibility === 'hidden' || target.hidden) {
-            target.style.display = 'block';
-            target.style.visibility = 'visible';
-            target.hidden = false;
-          }
-        }
+  // Intercept all link clicks to prevent them from breaking out
+  document.addEventListener('click', function(e) {
+      var target = e.target.closest('a');
+      if (target && target.target === '_top') {
+          target.target = '_self';
       }
-    });
-  });
-  observer.observe(document.documentElement, { attributes: true, subtree: true });
-  
-  // Intercept attempts to clear the body
-  const originalClear = document.write;
-  document.write = function(h) { if (h.length > 10) originalClear.apply(document, arguments); };
+  }, true);
 })();
 """
         if soup.head:
-            soup.head.insert(0, spoof_script)
+            soup.head.append(spoof_script)
         elif soup.html:
-            soup.html.insert(0, spoof_script)
+            soup.html.append(spoof_script)
 
-        # Inject link-interceptor and network-interceptor
+        # 4. INTERCEPTOR SCRIPT (Navigation & Proxying)
         interceptor = soup.new_tag("script")
         interceptor.string = """
 (function () {
@@ -531,30 +517,18 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
   function resolve(url) {
     if (!url) return url;
     if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('javascript:')) return url;
-    
-    // Handle protocol-relative URLs manually just in case
-    if (url.startsWith('//')) {
-      return (BASE_URL.startsWith('https:') ? 'https:' : 'http:') + url;
-    }
-
-    try {
-      return new URL(url, BASE_URL).href;
-    } catch (_) {
-      return url;
-    }
+    if (url.startsWith('//')) return (BASE_URL.startsWith('https:') ? 'https:' : 'http:') + url;
+    try { return new URL(url, BASE_URL).href; } catch (_) { return url; }
   }
 
   function proxify(url) {
     const resolved = resolve(url);
-    if (!resolved || resolved.startsWith('data:') || resolved.startsWith('blob:') || resolved.startsWith('javascript:')) {
-       return url;
-    }
-    // Don't double proxy
+    if (!resolved || resolved.startsWith('data:') || resolved.startsWith('blob:') || resolved.startsWith('javascript:')) return url;
     if (resolved.startsWith(window.location.origin + '/api/proxy')) return resolved;
     return PROXY_ROOT + encodeURIComponent(resolved);
   }
 
-  // Intercept Link Clicks
+  // Intercept Link Clicks and communicate with parent
   function interceptLinks() {
     document.querySelectorAll('a[href]').forEach(function (a) {
       if (a._pi) return;
@@ -569,19 +543,16 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
     });
   }
 
-  // Monkey-patch Fetch
+  // Patch dynamic requests
   const originalFetch = window.fetch;
   window.fetch = function(input, init) {
-    if (typeof input === 'string') {
-      input = proxify(input);
-    } else if (input instanceof Request) {
-      const newUrl = proxify(input.url);
-      input = new Request(newUrl, input);
+    if (typeof input === 'string') input = proxify(input);
+    else if (input instanceof Request) {
+      input = new Request(proxify(input.url), input);
     }
     return originalFetch(input, init);
   };
 
-  // Monkey-patch XHR
   const originalOpen = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function(method, url, ...args) {
     return originalOpen.apply(this, [method, proxify(url), ...args]);
@@ -600,11 +571,8 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
         elif soup.html:
             soup.html.append(interceptor)
 
-        body = str(soup).encode("utf-8", errors="replace")
-        return Response(
-            content=body,
-            media_type="text/html; charset=utf-8",
-        )
+        final_body = str(soup).encode("utf-8", errors="replace")
+        return Response(content=final_body, media_type="text/html; charset=utf-8")
 
     # Non-HTML (images, CSS, JS, fonts…) — pass through as-is
     forward_headers = {
