@@ -361,7 +361,7 @@ export default function App() {
                   setShowSuggestions(true)
                 }}
                 onFocus={() => {if (suggestions.length > 0) setShowSuggestions(true)}}
-                placeholder="Search college or type URL (e.g. srm)"
+                placeholder="Type any website"
                 disabled={phase === 'indexing'}
                 className="setup-input"
                 autoFocus
