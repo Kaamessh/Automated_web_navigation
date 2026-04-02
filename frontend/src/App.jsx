@@ -82,18 +82,22 @@ export default function App() {
       }
 
       try {
-        // 1. Fetch typo-corrected suggestions from DuckDuckGo (handles "goooogle" -> "google")
-        const ddgRes = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}`)
+        // 1. Fetch fuzzy suggestions from DDG (typo correction)
+        // Wrapped in a safe block to prevent CORS issues from breaking the whole UI
         let ddgData = []
-        if (ddgRes.ok) {
-          ddgData = await ddgRes.ok ? await ddgRes.json() : []
+        try {
+          const ddgRes = await fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}`)
+          if (ddgRes.ok) {
+            ddgData = await ddgRes.json()
+          }
+        } catch (e) {
+          console.warn("Fuzzy lookup blocked or failed:", e)
         }
 
-        // 2. Extract unique "best guesses" from DuckDuckGo phrases
-        const bestGuesses = ddgData.slice(0, 3).map(item => item.phrase)
+        // 2. Extract best guesses
+        const bestGuesses = Array.isArray(ddgData) ? ddgData.slice(0, 3).map(item => item.phrase) : []
         
-        // 3. Fetch domain data for the user's query AND the best guesses
-        // We run these in parallel for maximum speed
+        // 3. Fetch domain data (Direct query + Fuzzy guesses)
         const searchTerms = [...new Set([query, ...bestGuesses])]
         const fetchPromises = searchTerms.map(term => 
           fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(term)}`)
@@ -101,24 +105,26 @@ export default function App() {
             .catch(() => [])
         )
 
-        const results = await Promise.all(fetchPromises)
+        const resultsArr = await Promise.all(fetchPromises)
         
-        // 4. Merge results and deduplicate by domain name
-        const merged = results.flat()
+        // 4. Merge results and deduplicate
+        const merged = resultsArr.flat()
         const uniqueSuggestions = []
         const seenDomains = new Set()
         
         for (const item of merged) {
-          if (!seenDomains.has(item.domain)) {
+          if (item && item.domain && !seenDomains.has(item.domain)) {
             uniqueSuggestions.push(item)
             seenDomains.add(item.domain)
           }
         }
 
-        setSuggestions(uniqueSuggestions.slice(0, 7)) // Limit to 7 results
+        setSuggestions(uniqueSuggestions.slice(0, 7))
         setShowSuggestions(uniqueSuggestions.length > 0)
       } catch (err) {
-        console.error("Autocomplete fetch failed:", err)
+        console.error("Critical Autocomplete failure:", err)
+        setSuggestions([])
+        setShowSuggestions(false)
       }
     }
 
