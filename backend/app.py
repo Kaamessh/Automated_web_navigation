@@ -430,12 +430,21 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
 
     try:
         body = await request.body()
+        
+        # 1. FIREWALL SPOOFING: Inject dynamic Referer and Origin headers
+        parsed_url = urllib.parse.urlparse(url)
+        origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        
+        custom_headers = dict(HEADERS)
+        custom_headers["Referer"] = origin + "/"
+        custom_headers["Origin"] = origin
+        
         # Use streaming to prevent downloading massive malicious files into memory
         MAX_SIZE = 10 * 1024 * 1024 # 10MB limit
         with requests.request(
             method=request.method,
             url=url,
-            headers=HEADERS,
+            headers=custom_headers,
             data=body,
             timeout=15,
             stream=True,
@@ -462,26 +471,39 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
     if "text/html" in content_type:
         html_content = content.decode("utf-8", errors="replace")
         
-        # 1. FIX MIXED CONTENT: Aggressive http -> https rewriting for assets
-        parsed_url = urllib.parse.urlparse(url)
-        domain = parsed_url.netloc
-        domain_regex = domain.replace("www.", "") # Make www optional
+        # 1. FIX CORS BLOCKING: Strip Subresource Integrity and Cross-Origin tags
         import re
-        # Target the domain specifically
-        html_content = re.sub(r'http://(www\.)?' + re.escape(domain_regex), r'https://\1' + domain_regex, html_content, flags=re.I)
-        # Nuke all mixed content by forcing all http src/href attributes to https
-        # This completely fixes the "blocked insecure stylesheet/script" errors
-        html_content = re.sub(r'(src|href)=[\'"]http://([^\'"]+)[\'"]', r'\1="https://\2"', html_content, flags=re.I)
-
-        # 1.5 FIX CORS BLOCKING: Strip Subresource Integrity and Cross-Origin tags
-        # Sites like SRMIST (WordPress) use crossorigin="anonymous", which causes Chrome 
-        # to strictly block the scripts when loaded via our proxy domain.
         html_content = re.sub(r'\s+crossorigin=[\'"][^\'"]*[\'"]', '', html_content, flags=re.I)
         html_content = re.sub(r'\s+integrity=[\'"][^\'"]*[\'"]', '', html_content, flags=re.I)
 
         soup = BeautifulSoup(html_content, "html.parser")
         
-        # 2. BASE TAG INJECTION: Fix relative paths for images/css/js
+        # 2. UNIVERSAL FIREWALL BYPASS: Proxy all assets through our backend
+        # We determine the absolute proxy url (e.g. https://automated-web-navigation.vercel.app/api/proxy?url=)
+        scheme = request.headers.get('x-forwarded-proto') or request.url.scheme
+        host = request.headers.get('x-forwarded-host') or request.headers.get('host')
+        proxy_base = f"{scheme}://{host}/api/proxy?url="
+        
+        # Proxy Scripts, Images, and Iframes
+        for tag in soup.find_all(['script', 'img', 'iframe', 'source', 'audio', 'video']):
+            if tag.has_attr('src'):
+                raw_url = tag['src']
+                if raw_url and not (raw_url.startswith('data:') or raw_url.startswith('javascript:') or raw_url.startswith('#')):
+                    resolved = urllib.parse.urljoin(url, raw_url)
+                    # Don't double proxy
+                    if "/api/proxy?url=" not in resolved:
+                        tag['src'] = f"{proxy_base}{urllib.parse.quote(resolved)}"
+                        
+        # Proxy Stylesheets
+        for tag in soup.find_all('link', href=True):
+            raw_url = tag['href']
+            # We rewrite ALL stylesheets, icon links, etc.
+            if raw_url and not (raw_url.startswith('data:') or raw_url.startswith('javascript:') or raw_url.startswith('#')):
+                resolved = urllib.parse.urljoin(url, raw_url)
+                if "/api/proxy?url=" not in resolved:
+                    tag['href'] = f"{proxy_base}{urllib.parse.quote(resolved)}"
+
+        # 3. BASE TAG INJECTION: Fix relative paths for any un-proxied elements
         if not soup.find("base"):
             base_tag = soup.new_tag("base", href=url)
             if soup.head:
