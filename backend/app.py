@@ -473,6 +473,12 @@ async def proxy(request: Request, url: str = Query(..., description="Full URL to
         # This completely fixes the "blocked insecure stylesheet/script" errors
         html_content = re.sub(r'(src|href)=[\'"]http://([^\'"]+)[\'"]', r'\1="https://\2"', html_content, flags=re.I)
 
+        # 1.5 FIX CORS BLOCKING: Strip Subresource Integrity and Cross-Origin tags
+        # Sites like SRMIST (WordPress) use crossorigin="anonymous", which causes Chrome 
+        # to strictly block the scripts when loaded via our proxy domain.
+        html_content = re.sub(r'\s+crossorigin=[\'"][^\'"]*[\'"]', '', html_content, flags=re.I)
+        html_content = re.sub(r'\s+integrity=[\'"][^\'"]*[\'"]', '', html_content, flags=re.I)
+
         soup = BeautifulSoup(html_content, "html.parser")
         
         # 2. BASE TAG INJECTION: Fix relative paths for images/css/js
